@@ -197,3 +197,14 @@ int is_destructable(int w) {
             return 1;
     }
 }
+
+double get_destory_duration(int w){
+    switch(w) {
+        case STONE:
+            return 10;
+        case WOOD:
+            return 2;
+        default:
+        return 1.;
+    }
+}

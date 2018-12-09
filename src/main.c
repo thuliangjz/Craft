@@ -116,6 +116,15 @@ typedef struct {
 } Attrib;
 
 typedef struct {
+    int dec;
+    double duration;
+    double start_stamp;
+    int x;
+    int y;
+    int z;
+} BlockDestorying;
+
+typedef struct {
     GLFWwindow *window;
     Worker workers[WORKERS];
     Chunk chunks[MAX_CHUNKS];
@@ -151,6 +160,7 @@ typedef struct {
     Block block1;
     Block copy0;
     Block copy1;
+    BlockDestorying block_destorying;
 } Model;
 
 static Model model;
@@ -2137,16 +2147,65 @@ void on_light() {
     }
 }
 
+void update_destorying_block(double d_w, double d_r){
+    if(!g->block_destorying.dec)
+        return;
+    if(d_w > 5 || d_r > 5){
+        State *s = &g->players->state;
+        int hx, hy, hz;
+        int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+        if(hw == 0){
+            g->block_destorying.dec = 0;
+            return;
+        }
+        if(hx != g->block_destorying.x || hy != g->block_destorying.y || hz != g->block_destorying.z){
+            g->block_destorying.start_stamp = glfwGetTime();
+            g->block_destorying.duration = get_destory_duration(hw);
+            g->block_destorying.x = hx;
+            g->block_destorying.y = hy;
+            g->block_destorying.z = hz;
+            return;
+        }
+    }
+    double d = glfwGetTime() - g->block_destorying.start_stamp;
+    if(d >= g->block_destorying.duration){
+        set_block(g->block_destorying.x, g->block_destorying.y, g->block_destorying.z, 0);
+        record_block(g->block_destorying.x, g->block_destorying.y, g->block_destorying.z, 0);
+        if(is_plant(get_block(g->block_destorying.x, g->block_destorying.y + 1, g->block_destorying.z))){
+            set_block(g->block_destorying.x, g->block_destorying.y + 1, g->block_destorying.z, 0);
+        }
+        //继续考察是否有方块被摧毁
+        State *s = &g->players->state;
+        int hx, hy, hz;
+        int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
+        if(hw == 0){
+            g->block_destorying.dec = 0;
+            return;
+        }
+        g->block_destorying.start_stamp = glfwGetTime();
+        g->block_destorying.duration = get_destory_duration(hw);
+        g->block_destorying.x = hx;
+        g->block_destorying.y = hy;
+        g->block_destorying.z = hz;
+    }
+}
+
+
+void on_left_release(){
+    g->block_destorying.dec = 0;
+}
+
 void on_left_click() {
     State *s = &g->players->state;
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
-        set_block(hx, hy, hz, 0);
-        record_block(hx, hy, hz, 0);
-        if (is_plant(get_block(hx, hy + 1, hz))) {
-            set_block(hx, hy + 1, hz, 0);
-        }
+        g->block_destorying.dec = 1;
+        g->block_destorying.x = hx;
+        g->block_destorying.y = hy;
+        g->block_destorying.z = hz;
+        g->block_destorying.start_stamp = glfwGetTime();
+        g->block_destorying.duration = get_destory_duration(hw);
     }
 }
 
@@ -2328,6 +2387,9 @@ void on_mouse_button(GLFWwindow *window, int button, int action, int mods) {
     int exclusive =
         glfwGetInputMode(window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
     if (action != GLFW_PRESS) {
+        if(button == GLFW_MOUSE_BUTTON_LEFT){
+            on_left_release();
+        }
         return;
     }
     if (button == GLFW_MOUSE_BUTTON_LEFT) {
@@ -2375,7 +2437,7 @@ void create_window() {
         window_width, window_height, "Craft", monitor, NULL);
 }
 
-void handle_mouse_input() {
+double handle_mouse_input() {
     int exclusive =
         glfwGetInputMode(g->window, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
     static double px = 0;
@@ -2400,15 +2462,18 @@ void handle_mouse_input() {
         }
         s->ry = MAX(s->ry, -RADIANS(90));
         s->ry = MIN(s->ry, RADIANS(90));
+        double d = MAX(fabs(mx - px), fabs(my - py));
         px = mx;
         py = my;
+        return d;
     }
     else {
         glfwGetCursorPos(g->window, &px, &py);
+        return 0;
     }
 }
 
-void handle_movement(double dt) {
+float handle_movement(double dt) {
     static float dy = 0;
     State *s = &g->players->state;
     int sz = 0;
@@ -2448,6 +2513,7 @@ void handle_movement(double dt) {
     vx = vx * ut * speed;
     vy = vy * ut * speed;
     vz = vz * ut * speed;
+    float x_orig = s->x, y_orig = s->y, z_orig = s->z;
     for (int i = 0; i < step; i++) {
         if (g->flying) {
             dy = 0;
@@ -2466,6 +2532,9 @@ void handle_movement(double dt) {
     if (s->y < 0) {
         s->y = highest_block(s->x, s->z) + 2;
     }
+    float d = MAX(fabs(s->x - x_orig), fabs(s->y - y_orig));
+    d = MAX(d, fabs(s->z - z_orig));
+    return d;
 }
 
 void parse_buffer(char *buffer) {
@@ -2581,6 +2650,7 @@ void reset_model() {
     g->day_length = DAY_LENGTH;
     glfwSetTime(g->day_length / 3.0);
     g->time_changed = 1;
+    g->block_destorying.dec = 0;
 }
 
 int main(int argc, char **argv) {
@@ -2794,10 +2864,12 @@ int main(int argc, char **argv) {
             previous = now;
 
             // HANDLE MOUSE INPUT //
-            handle_mouse_input();
+            double mv_w = handle_mouse_input();
 
             // HANDLE MOVEMENT //
-            handle_movement(dt);
+            double mv_r = handle_movement(dt);
+
+            update_destorying_block(mv_w, mv_r);
 
             // HANDLE DATA FROM SERVER //
             char *buffer = client_recv();
@@ -2957,7 +3029,7 @@ int main(int argc, char **argv) {
         delete_all_players();
     }
 
-    glfwTerminate();
+//    glfwTerminate();
     curl_global_cleanup();
     return 0;
 }

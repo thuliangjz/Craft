@@ -68,4 +68,6 @@ int is_obstacle(int w);
 int is_transparent(int w);
 int is_destructable(int w);
 
+double get_destory_duration(int w);
+
 #endif
