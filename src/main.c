@@ -19,7 +19,8 @@
 #include "tinycthread.h"
 #include "util.h"
 #include "world.h"
-
+#include "block_destroy.h"
+#include "model.h"
 #define MAX_CHUNKS 8192
 #define MAX_PLAYERS 128
 #define WORKERS 4
@@ -83,15 +84,6 @@ typedef struct {
 } Block;
 
 typedef struct {
-    float x;
-    float y;
-    float z;
-    float rx;
-    float ry;
-    float t;
-} State;
-
-typedef struct {
     int id;
     char name[MAX_NAME_LENGTH];
     State state;
@@ -115,14 +107,6 @@ typedef struct {
     GLuint extra4;
 } Attrib;
 
-typedef struct {
-    int dec;
-    double duration;
-    double start_stamp;
-    int x;
-    int y;
-    int z;
-} BlockDestorying;
 
 typedef struct {
     GLFWwindow *window;
@@ -160,7 +144,7 @@ typedef struct {
     Block block1;
     Block copy0;
     Block copy1;
-    BlockDestorying block_destorying;
+    BlockDestroying block_destroying;
 } Model;
 
 static Model model;
@@ -2147,52 +2131,9 @@ void on_light() {
     }
 }
 
-void update_destorying_block(double d_w, double d_r){
-    if(!g->block_destorying.dec)
-        return;
-    if(d_w > 5 || d_r > 5){
-        State *s = &g->players->state;
-        int hx, hy, hz;
-        int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
-        if(hw == 0){
-            g->block_destorying.dec = 0;
-            return;
-        }
-        if(hx != g->block_destorying.x || hy != g->block_destorying.y || hz != g->block_destorying.z){
-            g->block_destorying.start_stamp = glfwGetTime();
-            g->block_destorying.duration = get_destory_duration(hw);
-            g->block_destorying.x = hx;
-            g->block_destorying.y = hy;
-            g->block_destorying.z = hz;
-            return;
-        }
-    }
-    double d = glfwGetTime() - g->block_destorying.start_stamp;
-    if(d >= g->block_destorying.duration){
-        set_block(g->block_destorying.x, g->block_destorying.y, g->block_destorying.z, 0);
-        record_block(g->block_destorying.x, g->block_destorying.y, g->block_destorying.z, 0);
-        if(is_plant(get_block(g->block_destorying.x, g->block_destorying.y + 1, g->block_destorying.z))){
-            set_block(g->block_destorying.x, g->block_destorying.y + 1, g->block_destorying.z, 0);
-        }
-        //继续考察是否有方块被摧毁
-        State *s = &g->players->state;
-        int hx, hy, hz;
-        int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
-        if(hw == 0){
-            g->block_destorying.dec = 0;
-            return;
-        }
-        g->block_destorying.start_stamp = glfwGetTime();
-        g->block_destorying.duration = get_destory_duration(hw);
-        g->block_destorying.x = hx;
-        g->block_destorying.y = hy;
-        g->block_destorying.z = hz;
-    }
-}
-
 
 void on_left_release(){
-    g->block_destorying.dec = 0;
+    g->block_destroying.dec = 0;
 }
 
 void on_left_click() {
@@ -2200,12 +2141,12 @@ void on_left_click() {
     int hx, hy, hz;
     int hw = hit_test(0, s->x, s->y, s->z, s->rx, s->ry, &hx, &hy, &hz);
     if (hy > 0 && hy < 256 && is_destructable(hw)) {
-        g->block_destorying.dec = 1;
-        g->block_destorying.x = hx;
-        g->block_destorying.y = hy;
-        g->block_destorying.z = hz;
-        g->block_destorying.start_stamp = glfwGetTime();
-        g->block_destorying.duration = get_destory_duration(hw);
+        g->block_destroying.dec = 1;
+        g->block_destroying.x = hx;
+        g->block_destroying.y = hy;
+        g->block_destroying.z = hz;
+        g->block_destroying.start_stamp = glfwGetTime();
+        g->block_destroying.duration = get_destroy_duration(hw);
     }
 }
 
@@ -2650,7 +2591,7 @@ void reset_model() {
     g->day_length = DAY_LENGTH;
     glfwSetTime(g->day_length / 3.0);
     g->time_changed = 1;
-    g->block_destorying.dec = 0;
+    g->block_destroying.dec = 0;
 }
 
 int main(int argc, char **argv) {
@@ -2869,7 +2810,8 @@ int main(int argc, char **argv) {
             // HANDLE MOVEMENT //
             double mv_r = handle_movement(dt);
 
-            update_destorying_block(mv_w, mv_r);
+            update_destroying_block(mv_w, mv_r, &g->block_destroying, &g->players->state);
+
 
             // HANDLE DATA FROM SERVER //
             char *buffer = client_recv();

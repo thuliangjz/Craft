@@ -198,7 +198,10 @@ int is_destructable(int w) {
     }
 }
 
-double get_destory_duration(int w){
+double get_destroy_duration(int w){
+    if(is_plant(w)){
+        return 0;
+    }
     switch(w) {
         case STONE:
             return 10;
