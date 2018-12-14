@@ -2662,6 +2662,13 @@ int main(int argc, char **argv) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     load_png_texture("textures/sign.png");
 
+    GLuint destroy;
+    glGenTextures(1, &destroy);
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, destroy);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gen_destroy_texture();
     // LOAD SHADERS //
     Attrib block_attrib = {0};
     Attrib line_attrib = {0};
@@ -2708,6 +2715,14 @@ int main(int argc, char **argv) {
     sky_attrib.matrix = glGetUniformLocation(program, "matrix");
     sky_attrib.sampler = glGetUniformLocation(program, "sampler");
     sky_attrib.timer = glGetUniformLocation(program, "timer");
+
+    program = load_program(
+        "shaders/destroy_vertex.glsl", "shaders/destroy_fragment.glsl"
+    );
+    g->block_destroying.program = program;
+    g->block_destroying.position = glGetAttribLocation(program, "position");
+    g->block_destroying.uv = glGetAttribLocation(program, "uv");
+    g->block_destroying.sampler = glGetUniformLocation(program, "sampler");
 
     // CHECK COMMAND LINE ARGUMENTS //
     if (argc == 2 || argc == 3) {
@@ -2864,7 +2879,8 @@ int main(int argc, char **argv) {
             if (SHOW_ITEM) {
                 render_item(&block_attrib);
             }
-
+            glClear(GL_DEPTH_BUFFER_BIT);
+            render_destroy_texture_test(&g->block_destroying);
             // RENDER TEXT //
             char text_buffer[1024];
             float ts = 12 * g->scale;
