@@ -15,4 +15,5 @@ extern int hit_test(
 extern void set_block(int x, int y, int z, int w);
 extern void record_block(int x, int y, int z, int w);
 extern int get_block(int x, int y, int z);
+extern void get_mvp_matrix(float *mat);
 #endif

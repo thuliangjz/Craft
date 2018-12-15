@@ -2145,6 +2145,7 @@ void on_left_click() {
         g->block_destroying.x = hx;
         g->block_destroying.y = hy;
         g->block_destroying.z = hz;
+        g->block_destroying.w = hw;
         g->block_destroying.start_stamp = glfwGetTime();
         g->block_destroying.duration = get_destroy_duration(hw);
     }
@@ -2592,6 +2593,14 @@ void reset_model() {
     glfwSetTime(g->day_length / 3.0);
     g->time_changed = 1;
     g->block_destroying.dec = 0;
+    g->block_destroying.level_destruction = 0;
+}
+
+void get_mvp_matrix(float *mat){
+    State* s = &g->players->state;
+    set_matrix_3d(
+        mat, g->width, g->height,
+        s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, g->render_radius);
 }
 
 int main(int argc, char **argv) {
@@ -2622,8 +2631,10 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    glEnable(GL_CULL_FACE);
+//    glEnable(GL_CULL_FACE);
+    glDisable(GL_CULL_FACE);
     glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
     glLogicOp(GL_INVERT);
     glClearColor(0, 0, 0, 1);
 
@@ -2720,9 +2731,6 @@ int main(int argc, char **argv) {
         "shaders/destroy_vertex.glsl", "shaders/destroy_fragment.glsl"
     );
     g->block_destroying.program = program;
-    g->block_destroying.position = glGetAttribLocation(program, "position");
-    g->block_destroying.uv = glGetAttribLocation(program, "uv");
-    g->block_destroying.sampler = glGetUniformLocation(program, "sampler");
 
     // CHECK COMMAND LINE ARGUMENTS //
     if (argc == 2 || argc == 3) {
@@ -2870,7 +2878,7 @@ int main(int argc, char **argv) {
             if (SHOW_WIREFRAME) {
                 render_wireframe(&line_attrib, player);
             }
-
+            render_destroy_texture(&g->block_destroying);
             // RENDER HUD //
             glClear(GL_DEPTH_BUFFER_BIT);
             if (SHOW_CROSSHAIRS) {
@@ -2880,7 +2888,6 @@ int main(int argc, char **argv) {
                 render_item(&block_attrib);
             }
             glClear(GL_DEPTH_BUFFER_BIT);
-            render_destroy_texture_test(&g->block_destroying);
             // RENDER TEXT //
             char text_buffer[1024];
             float ts = 12 * g->scale;
