@@ -1,5 +1,23 @@
 #ifndef MODEL_H
 #define MODEL_H
+
+#include "map.h"
+#include "sign.h"
+typedef struct {
+    Map map;
+    Map lights;
+    SignList signs;
+    int p;
+    int q;
+    int faces;
+    int sign_faces;
+    int dirty;
+    int miny;
+    int maxy;
+    GLuint buffer;
+    GLuint sign_buffer;
+} Chunk;
+
 typedef struct {
     float x;
     float y;
@@ -16,4 +34,6 @@ extern void set_block(int x, int y, int z, int w);
 extern void record_block(int x, int y, int z, int w);
 extern int get_block(int x, int y, int z);
 extern void get_mvp_matrix(float *mat);
+extern int chunked(float x);
+extern Chunk *find_chunk(int p, int q);
 #endif

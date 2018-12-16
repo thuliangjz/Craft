@@ -6,10 +6,8 @@
 #include "util.h"
 #include <string.h>
 #include "cube.h"
-#define DESTROY_TEXTURE_SIZE 128
-#define DESTROY_TEXTURE_LEVEL 4
 
-#define DESTROY_MASK 150
+
 void update_destroying_block(double d_w, double d_r, BlockDestroying *block_destroying, State *state){
     if(!block_destroying->dec)
         return;
@@ -186,4 +184,117 @@ void render_destroy_texture(BlockDestroying* block_destroying){
     del_buffer(gl_buffer);
     free(buffer);
     free(buffer_cube);    
+}
+
+void init_destroy_particle(DestroyEmitter* emitter, int x, int y, int z, int w){
+    emitter->active = 1;
+    int idx = 0;
+    //游戏中的方块都是以整数点作为中心，1作为边长
+    const float step = 1 / PARTICLE_SEG_CNT;
+    float corner_center[3] = {x - 0.5 + 0.5 * step, y - 0.5 + 0.5 * step, z - 0.5 + 0.5 * step};
+    float center[3] = {x, y, z};
+    float d = 2;
+    for(int i = 0; i < PARTICLE_SEG_CNT; ++i){
+        for(int j = 0; j < PARTICLE_SEG_CNT; ++j){
+            for(int k = 0; k < PARTICLE_SEG_CNT; ++k){
+                emitter->particles[idx].p[0] = corner_center[0] + step * i;
+                emitter->particles[idx].p[1] = corner_center[1] + step * j;
+                emitter->particles[idx].p[2] = corner_center[2] + step * k;
+                for(int l = 0; l < 3; ++l){
+                    emitter->particles[idx].v[l] = (emitter->particles[idx].p[l] - center[l]) * d;
+                }
+                ++idx;
+            }
+        }
+    }
+    int p = chunked(x);
+    int q = chunked(z);
+    for(int i = -1; i < 2; ++i){
+        for(int j = -1; j < 2; ++j){
+            emitter->chunks[(i + 1) * 3 + j + 1] = find_chunk(p + i, q + i);
+        }
+    }
+    emitter->start_stamp = glfwGetTime();
+    emitter->last_update = emitter->start_stamp;
+}
+
+void update_destroy_particle(DestroyEmitter* emitter){
+    if(!emitter->active)
+        return;
+    double t_current = glfwGetTime();
+    if(t_current - emitter->start_stamp > PARTICLE_DURATION){
+        emitter->active = 0;
+        return;
+    }
+    if(t_current - emitter->last_update < 0.01) //控制刷新速率
+        return;
+    float dt = t_current - emitter->last_update;
+    for(int i = 0; i < PARTICLE_SEG_CNT * PARTICLE_SEG_CNT * PARTICLE_SEG_CNT; ++i){
+        __particle_collision_update(emitter, i, dt);
+        emitter->particles[i].v[1] -= (9.8 + emitter->particles[i].v[1] * 0.5) * dt;
+    }
+    emitter->last_update = glfwGetTime();
+}
+
+void __particle_collision_update(DestroyEmitter* emitter, int idx_particle, float dt){
+    //精简版find_chunk
+    int p = chunked(emitter->particles[idx_particle].p[0]);
+    int q = chunked(emitter->particles[idx_particle].p[2]);
+    Chunk* chunk = 0;
+    for(int i = 0; i < 9; ++i){
+        if(emitter->chunks[i] == 0)
+            continue;
+        if(emitter->chunks[i]->p == p && emitter->chunks[i]->q == q){
+            chunk = emitter->chunks[i];
+            break;
+        }
+    }
+    if(!chunk)
+        return;
+    Map *map = &chunk->map;
+    //计算增量位移
+    const float max_step = 1 / PARTICLE_SEG_CNT * 0.9;  //最大的移动距离
+    DestroyParticle *particle = &emitter->particles[idx_particle];
+    int cnt_step = 0;
+    for(int i = 0 ; i < 3; ++i){
+        int cnt_tmp = ceilf(particle->v[i] * dt / max_step);
+        cnt_step = cnt_step > cnt_tmp ? cnt_step : cnt_tmp;
+    }
+    float step[3] = {0};
+    for(int i = 0; i < 3; ++i){
+        step[i] = particle->v[i] * dt / cnt_step;
+    }
+    //增量更新并进行碰撞检测
+    static const float vertex_pos_rel[8][3] = {
+        {-1, -1, -1},
+        {-1, -1, 1},
+        {-1, 1, -1},
+        {-1, 1, 1},
+        {1, -1, -1},
+        {1, -1, 1},
+        {1, 1, -1},
+        {1, 1, 1}
+    };
+    static const float n = 1 / PARTICLE_SEG_CNT / 2;
+    for(int i = 0 ; i < cnt_step; ++i){
+        for(int j = 0; j < 3; ++j){
+            if(step[j] < 1e-5f)
+                continue;
+            particle->p[j] += step[j];
+            for(int k = 0; k < 8; ++k){
+                float pos_vertex[3];
+                for(int l = 0; l < 3; ++l){
+                    pos_vertex[l] = particle->p[l] + vertex_pos_rel[k][l] * n;
+                }
+                int center[3] = {roundf(pos_vertex[0]), roundf(pos_vertex[1]), roundf(pos_vertex[2])};
+                if(!is_obstacle(map_get(map, center[0], center[1], center[2])))
+                    continue;
+                //发生碰撞
+                particle->p[j] = step[j] > 0 ? center[j] - 0.5 - n : center[j] + 0.5 + n;
+                step[j] = 0;
+                particle->v[j] = 0;
+                break;
+            }
+        }
+    }
 }

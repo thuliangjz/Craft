@@ -40,20 +40,6 @@
 #define WORKER_BUSY 1
 #define WORKER_DONE 2
 
-typedef struct {
-    Map map;
-    Map lights;
-    SignList signs;
-    int p;
-    int q;
-    int faces;
-    int sign_faces;
-    int dirty;
-    int miny;
-    int maxy;
-    GLuint buffer;
-    GLuint sign_buffer;
-} Chunk;
 
 typedef struct {
     int p;
