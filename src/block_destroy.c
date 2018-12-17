@@ -2,11 +2,12 @@
 #include "item.h"
 #include <GLFW/glfw3.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <math.h>
 #include "util.h"
 #include <string.h>
 #include "cube.h"
-
+void __particle_collision_update(DestroyEmitter* emitter, int idx_particle, float dt);
 
 void update_destroying_block(double d_w, double d_r, BlockDestroying *block_destroying, State *state){
     if(!block_destroying->dec)
@@ -39,6 +40,9 @@ void update_destroying_block(double d_w, double d_r, BlockDestroying *block_dest
         if(is_plant(get_block(block_destroying->x, block_destroying->y + 1, block_destroying->z))){
             set_block(block_destroying->x, block_destroying->y + 1, block_destroying->z, 0);
         }
+        init_destroy_particle(&block_destroying->emitter, 
+            block_destroying->x, block_destroying->y, block_destroying->z,
+            block_destroying->w);
         //继续考察是否有方块被摧毁
         State *s = state;
         int hx, hy, hz;
@@ -189,8 +193,10 @@ void render_destroy_texture(BlockDestroying* block_destroying){
 void init_destroy_particle(DestroyEmitter* emitter, int x, int y, int z, int w){
     emitter->active = 1;
     int idx = 0;
+    float rand_max = 1.f;
+    const int rand_interval = 10;
     //游戏中的方块都是以整数点作为中心，1作为边长
-    const float step = 1 / PARTICLE_SEG_CNT;
+    const float step = 1.f / PARTICLE_SEG_CNT;
     float corner_center[3] = {x - 0.5 + 0.5 * step, y - 0.5 + 0.5 * step, z - 0.5 + 0.5 * step};
     float center[3] = {x, y, z};
     float d = 2;
@@ -201,7 +207,8 @@ void init_destroy_particle(DestroyEmitter* emitter, int x, int y, int z, int w){
                 emitter->particles[idx].p[1] = corner_center[1] + step * j;
                 emitter->particles[idx].p[2] = corner_center[2] + step * k;
                 for(int l = 0; l < 3; ++l){
-                    emitter->particles[idx].v[l] = (emitter->particles[idx].p[l] - center[l]) * d;
+                    emitter->particles[idx].v[l] = (emitter->particles[idx].p[l] - center[l]) * d + 
+                        ((rand() % rand_interval) - rand_interval / 2) / (float)rand_interval * rand_max;
                 }
                 ++idx;
             }
@@ -211,16 +218,29 @@ void init_destroy_particle(DestroyEmitter* emitter, int x, int y, int z, int w){
     int q = chunked(z);
     for(int i = -1; i < 2; ++i){
         for(int j = -1; j < 2; ++j){
-            emitter->chunks[(i + 1) * 3 + j + 1] = find_chunk(p + i, q + i);
+            emitter->chunks[(i + 1) * 3 + j + 1] = find_chunk(p + i, q + j);
         }
     }
     emitter->start_stamp = glfwGetTime();
     emitter->last_update = emitter->start_stamp;
+    emitter->w = w;
+}
+
+void linear_v_dec(float *v, float a, float dt){
+    float vt = *v;
+    if(fabsf(vt) < 1e-5)
+        return;
+    int sgn = vt > 0 ? 1 : -1;
+    vt += -sgn * a * dt;
+    int sgn1 = vt > 0 ? 1 : -1;
+    vt = sgn1 == sgn ? vt : 0;
+    *v = vt;
 }
 
 void update_destroy_particle(DestroyEmitter* emitter){
     if(!emitter->active)
         return;
+    const int particle_count =  PARTICLE_SEG_CNT * PARTICLE_SEG_CNT * PARTICLE_SEG_CNT;
     double t_current = glfwGetTime();
     if(t_current - emitter->start_stamp > PARTICLE_DURATION){
         emitter->active = 0;
@@ -229,10 +249,17 @@ void update_destroy_particle(DestroyEmitter* emitter){
     if(t_current - emitter->last_update < 0.01) //控制刷新速率
         return;
     float dt = t_current - emitter->last_update;
-    for(int i = 0; i < PARTICLE_SEG_CNT * PARTICLE_SEG_CNT * PARTICLE_SEG_CNT; ++i){
+    for(int i = 0; i < particle_count; ++i){
         __particle_collision_update(emitter, i, dt);
-        emitter->particles[i].v[1] -= (9.8 + emitter->particles[i].v[1] * 0.5) * dt;
+        emitter->particles[i].v[1] -= (5.f + emitter->particles[i].v[1] * 0.5) * dt;
+        linear_v_dec(&emitter->particles[i].v[0], 0.5, dt);
+        linear_v_dec(&emitter->particles[i].v[2], 0.5, dt);
     }
+//    for(int i = 0; i < particle_count; ++i){
+//        for(int j = 0; j < 3; ++j){
+//            emitter->particles[i].p[j] += emitter->particles[i].v[j] * dt;
+//        }
+//    }
     emitter->last_update = glfwGetTime();
 }
 
@@ -249,15 +276,17 @@ void __particle_collision_update(DestroyEmitter* emitter, int idx_particle, floa
             break;
         }
     }
-    if(!chunk)
+    if(!chunk){
+        printf("error\n");
         return;
+    }
     Map *map = &chunk->map;
     //计算增量位移
-    const float max_step = 1 / PARTICLE_SEG_CNT * 0.9;  //最大的移动距离
+    const float max_step = 1.f / PARTICLE_SEG_CNT * 0.9;  //最大的移动距离
     DestroyParticle *particle = &emitter->particles[idx_particle];
     int cnt_step = 0;
     for(int i = 0 ; i < 3; ++i){
-        int cnt_tmp = ceilf(particle->v[i] * dt / max_step);
+        int cnt_tmp = ceilf(fabsf(particle->v[i]) * dt / max_step);
         cnt_step = cnt_step > cnt_tmp ? cnt_step : cnt_tmp;
     }
     float step[3] = {0};
@@ -275,10 +304,10 @@ void __particle_collision_update(DestroyEmitter* emitter, int idx_particle, floa
         {1, 1, -1},
         {1, 1, 1}
     };
-    static const float n = 1 / PARTICLE_SEG_CNT / 2;
+    static const float n = (1.f / PARTICLE_SEG_CNT) * 0.5f;
     for(int i = 0 ; i < cnt_step; ++i){
         for(int j = 0; j < 3; ++j){
-            if(step[j] < 1e-5f)
+            if(fabsf(step[j]) < 1e-5f)
                 continue;
             particle->p[j] += step[j];
             for(int k = 0; k < 8; ++k){
@@ -297,4 +326,56 @@ void __particle_collision_update(DestroyEmitter* emitter, int idx_particle, floa
             }
         }
     }
+}
+
+void render_destroy_particle(DestroyEmitter* emitter){
+    //假设已经使用了绘制的program
+    if(!emitter->active)
+        return;
+    float mat_mvp[16] = {0};
+    get_mvp_matrix(mat_mvp);
+    const int count_particle = PARTICLE_SEG_CNT * PARTICLE_SEG_CNT * PARTICLE_SEG_CNT;
+    const int step1 = 5, step2 = 10;
+    float ao[6][4] = {0};
+    float light[6][4] = {0};
+
+    float *b1 = calloc(count_particle * 36 * step1, sizeof(float));
+    float *b2 = calloc(count_particle * 36 * step2, sizeof(float));
+    int p1 = 0, p2 = 0;
+    for(int i = 0; i < count_particle; ++i){
+        make_cube(b2 + p2, ao, light, 1, 1, 1, 1, 1, 1, 
+            emitter->particles[i].p[0], 
+            emitter->particles[i].p[1],
+            emitter->particles[i].p[2], 
+            1.f / PARTICLE_SEG_CNT * 0.5, emitter->w);
+        for(int j = 0; j < 36; ++j){
+            b1[p1] = b2[p2];
+            b1[p1 + 1] = b2[p2 + 1];
+            b1[p1 + 2] = b2[p2 + 2];
+            b1[p1 + 3] = b2[p2 + 6];
+            b1[p1 + 4] = b2[p2 + 7];
+            p1 += step1;
+            p2 += step2;
+        }
+    }
+    glUseProgram(emitter->program);
+    GLuint b_g = gen_buffer(count_particle * 36 * step1 * sizeof(float), b1);
+    glBindBuffer(GL_ARRAY_BUFFER, b_g);
+    GLuint pos, uv;
+    pos = glGetAttribLocation(emitter->program, "position");
+    uv = glGetAttribLocation(emitter->program, "uv");
+    glEnableVertexAttribArray(pos);
+    glEnableVertexAttribArray(uv);
+    glVertexAttribPointer(pos, 3, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * step1, (void*)0);
+    glVertexAttribPointer(uv, 2, GL_FLOAT, GL_FALSE, sizeof(GL_FLOAT) * step1, (void*)(3 * sizeof(GL_FLOAT)));
+    glUniform1i(glGetUniformLocation(emitter->program, "sampler"), 0);
+    glUniformMatrix4fv(glGetUniformLocation(emitter->program, "mat_mvp"), 1, GL_FALSE, mat_mvp);
+    glDrawArrays(GL_TRIANGLES, 0, count_particle * 36);
+
+    glDisableVertexAttribArray(pos);
+    glDisableVertexAttribArray(uv);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    del_buffer(b_g);
+    free(b1);
+    free(b2);
 }

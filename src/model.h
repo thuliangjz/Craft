@@ -3,6 +3,7 @@
 
 #include "map.h"
 #include "sign.h"
+#include <GL/glew.h>
 typedef struct {
     Map map;
     Map lights;

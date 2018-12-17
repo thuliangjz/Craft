@@ -7,19 +7,7 @@
 #define DESTROY_TEXTURE_SIZE 128
 #define DESTROY_TEXTURE_LEVEL 4
 #define DESTROY_MASK 150
-#define PARTICLE_DURATION 1
-
-typedef struct {
-    int dec;
-    double duration;
-    double start_stamp;
-    int x;
-    int y;
-    int z;
-    int w;
-    int level_destruction;
-    GLuint program;
-} BlockDestroying;
+#define PARTICLE_DURATION 3
 
 typedef struct {
     float v[3];    //粒子速度,时间尺度为秒，注意glfwGetTime也是以秒为单位的
@@ -31,9 +19,25 @@ typedef struct {
     int active;
     double start_stamp;
     double last_update;
+    int w;
     DestroyParticle particles[PARTICLE_SEG_CNT * PARTICLE_SEG_CNT * PARTICLE_SEG_CNT];
     Chunk *chunks[9];   //保存发射点附近的3*3的chunk地图,直接调用find_chunk开销太大
+    GLuint program;
 }DestroyEmitter;
+
+typedef struct {
+    int dec;
+    double duration;
+    double start_stamp;
+    int x;
+    int y;
+    int z;
+    int w;
+    int level_destruction;
+    GLuint program;
+    DestroyEmitter emitter;
+} BlockDestroying;
+
 
 extern void update_destroying_block(double d_w, double d_r, BlockDestroying *block_destroying, State *state);
 extern void gen_destroy_texture();

@@ -2580,6 +2580,7 @@ void reset_model() {
     g->time_changed = 1;
     g->block_destroying.dec = 0;
     g->block_destroying.level_destruction = 0;
+    g->block_destroying.emitter.active = 0;
 }
 
 void get_mvp_matrix(float *mat){
@@ -2718,6 +2719,11 @@ int main(int argc, char **argv) {
     );
     g->block_destroying.program = program;
 
+    program = load_program(
+        "shaders/particle_vertex.glsl", "shaders/particle_fragment.glsl"
+    );
+    g->block_destroying.emitter.program = program;
+
     // CHECK COMMAND LINE ARGUMENTS //
     if (argc == 2 || argc == 3) {
         g->mode = MODE_ONLINE;
@@ -2820,7 +2826,7 @@ int main(int argc, char **argv) {
             double mv_r = handle_movement(dt);
 
             update_destroying_block(mv_w, mv_r, &g->block_destroying, &g->players->state);
-
+            update_destroy_particle(&g->block_destroying.emitter);
 
             // HANDLE DATA FROM SERVER //
             char *buffer = client_recv();
@@ -2865,6 +2871,7 @@ int main(int argc, char **argv) {
                 render_wireframe(&line_attrib, player);
             }
             render_destroy_texture(&g->block_destroying);
+            render_destroy_particle(&g->block_destroying.emitter);
             // RENDER HUD //
             glClear(GL_DEPTH_BUFFER_BIT);
             if (SHOW_CROSSHAIRS) {
