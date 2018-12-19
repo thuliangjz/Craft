@@ -20,7 +20,7 @@
 #include "util.h"
 #include "world.h"
 #include "block_destroy.h"
-#include "model.h"
+#include "rain.h"
 #define MAX_CHUNKS 8192
 #define MAX_PLAYERS 128
 #define WORKERS 4
@@ -131,6 +131,7 @@ typedef struct {
     Block copy0;
     Block copy1;
     BlockDestroying block_destroying;
+    Rain rain;
 } Model;
 
 static Model model;
@@ -2581,6 +2582,7 @@ void reset_model() {
     g->block_destroying.dec = 0;
     g->block_destroying.level_destruction = 0;
     g->block_destroying.emitter.active = 0;
+    g->rain.inited = 0;
 }
 
 void get_mvp_matrix(float *mat){
@@ -2724,6 +2726,11 @@ int main(int argc, char **argv) {
     );
     g->block_destroying.emitter.program = program;
 
+    program = load_program(
+        "shaders/rain_line_vertex.glsl", "shaders/rain_line_fragment.glsl"
+    );
+    g->rain.program_rain_line = program;
+
     // CHECK COMMAND LINE ARGUMENTS //
     if (argc == 2 || argc == 3) {
         g->mode = MODE_ONLINE;
@@ -2827,7 +2834,7 @@ int main(int argc, char **argv) {
 
             update_destroying_block(mv_w, mv_r, &g->block_destroying, &g->players->state);
             update_destroy_particle(&g->block_destroying.emitter);
-
+            update_rain(&g->rain, &g->players->state);
             // HANDLE DATA FROM SERVER //
             char *buffer = client_recv();
             if (buffer) {
@@ -2864,6 +2871,7 @@ int main(int argc, char **argv) {
             render_sky(&sky_attrib, player, sky_buffer);
             glClear(GL_DEPTH_BUFFER_BIT);
             int face_count = render_chunks(&block_attrib, player);
+            render_rain(&g->rain);
             render_signs(&text_attrib, player);
             render_sign(&text_attrib, player);
             render_players(&block_attrib, player);

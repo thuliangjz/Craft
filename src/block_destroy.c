@@ -183,7 +183,7 @@ void render_destroy_texture(BlockDestroying* block_destroying){
 
     glDisableVertexAttribArray(position);
     glDisableVertexAttribArray(uv_texture);
-    glEnableVertexAttribArray(uv_weight);
+    glDisableVertexAttribArray(uv_weight);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     del_buffer(gl_buffer);
     free(buffer);
