@@ -2729,7 +2729,11 @@ int main(int argc, char **argv) {
     program = load_program(
         "shaders/rain_line_vertex.glsl", "shaders/rain_line_fragment.glsl"
     );
-    g->rain.program_rain_line = program;
+    g->rain.program_line = program;
+    program = load_program(
+        "shaders/rain_splash_vertex.glsl", "shaders/rain_splash_fragment.glsl"
+    );
+    g->rain.program_splash = program;
 
     // CHECK COMMAND LINE ARGUMENTS //
     if (argc == 2 || argc == 3) {
