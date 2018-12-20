@@ -7,6 +7,15 @@
 #include "item.h"
 #include "util.h"
 
+void __update_rain_time(Rain* rain);
+void __init_rain(Rain* rain);
+GLuint gen_seq_buffer(Rain* rain);
+GLuint gen_splash_buffer(Rain* rain);
+GLuint gen_instance_buffer_line(Rain* rain, Chunk* chunk);
+GLuint gen_instance_buffer_splash(Rain* rain, Chunk* chunk);
+int __get_t_totoal_line(Rain* rain);
+void __gen_instances(Rain* rain, int p, int q, int force);
+int __is_neighbor(int p1, int q1, int p, int q);
 float *__instance_buffer_rain_line(Chunk* chunk, int cnt_seg_pb, 
         float len_rain_line, float interval_rain_line,
         int *cnt_instance){
@@ -234,20 +243,12 @@ void __draw_rain_line(GLuint program,
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void render_rain(Rain* rain){
-    __draw_rain_line(rain->program_line, rain->vbo_seq_line, rain->vbo_instance_line,
-        rain->len_seq_line, rain->cnt_instance_line, rain->t_line, rain->t_total_line);
-    __draw_rain_splash(rain->program_splash, rain->vbo_splash, rain->vbo_instance_splash,
-        rain->cnt_particle, rain->cnt_instance_splash, 
-        rain->t_splash, rain->t_max_splash, rain->t_animation_max_splash);
-}
-
 void __update_rain_time(Rain* rain){
     double t_current = glfwGetTime();
     double interval_line = t_current - rain->last_update;
     if(interval_line > rain->t_step_interval){
         ++rain->t_line;
-        rain->t_line = rain->t_line >= rain->t_total_line ? 0 : rain->t_line;
+        rain->t_line = rain->t_line >= __get_t_totoal_line(rain) ? 0 : rain->t_line;
 
         rain->t_splash += rain->t_step_interval;
         rain->t_splash = rain->t_splash > rain->t_max_splash ? 
@@ -257,56 +258,158 @@ void __update_rain_time(Rain* rain){
     }
 }
 
+int __is_neighbor(int p1, int q1, int p, int q){
+    return abs(p - p1) <= 1 && abs(q - q1) <= 1;
+}
+
+void __gen_instances(Rain* rain, int p, int q, int force){
+    if(force){
+        int idx_instance = 0;
+        for(int dp = -1; dp < 2; ++dp){
+            for(int dq = -1; dq < 2; ++dq){
+                Chunk* chunk = find_chunk(p + dp, q + dq);
+                if(!chunk){
+                    rain->instance[idx_instance].valid = 0;
+                    continue;
+                }
+                rain->instance[idx_instance].p = p + dp;
+                rain->instance[idx_instance].q = q + dq;
+                rain->instance[idx_instance].vbo_instance_line = gen_instance_buffer_line(rain, chunk);
+                rain->instance[idx_instance].vbo_instance_splash = gen_instance_buffer_splash(rain, chunk); 
+                rain->instance[idx_instance].valid = 1;
+                ++idx_instance;
+            }
+        }
+    }
+    else{
+        if(rain->p == p && rain->q == q)
+            return;
+        RainInstance copy[9];
+        int flags[9] = {0};
+        for(int i = 0; i < 9; ++i){
+            if(!__is_neighbor(rain->instance[i].p, rain->instance[i].q, p, q) && 
+                rain->instance[i].valid){
+                del_buffer(rain->instance[i].vbo_instance_line);
+                del_buffer(rain->instance[i].vbo_instance_splash);
+                rain->instance[i].valid = 0;
+            }
+            else{
+                int cpy_idx = (rain->instance[i].p - p + 1) * 3 + (rain->instance[i].q - q + 1);
+                copy[cpy_idx] = rain->instance[i];
+                flags[cpy_idx] = 1;
+            }
+        }
+        for(int i = 0; i < 9; ++i){
+            if(!flags[i]){
+                copy[i].p = i / 3 - 1 + p;
+                copy[i].q = i % 3 - 1 + q;
+                Chunk* chunk = find_chunk(copy[i].p, copy[i].q);
+                if(chunk){
+                    copy[i].valid = 1;
+                    copy[i].vbo_instance_line = gen_instance_buffer_line(rain, chunk);
+                    copy[i].vbo_instance_splash = gen_instance_buffer_splash(rain, chunk);
+                }
+                else{
+                    copy[i].valid = 0;
+                }
+            }
+            rain->instance[i] = copy[i];
+        }
+    }
+    rain->p = p;
+    rain->q = q;
+}
+
+void __init_rain(Rain* rain){
+    rain->inited = 1;
+    rain->activated = 1;
+    
+    rain->t_step_interval = 0.01f;
+    rain->last_update = glfwGetTime();
+    
+    rain->cnt_seg_pb_line = 1;
+    rain->len_rain_line = 0.9f;
+    rain->interval_rain_line = 30.f;
+    rain->t_line = 0;
+    rain->v_line = 8.f;
+    
+    rain->cnt_particle = 20;
+    rain->v_max_splash = 3.f;
+    rain->splash_pb = 3;
+    rain->t_splash = 0.f;
+    rain->t_max_splash = 5.f;
+    rain->t_animation_max_splash = 0.5f;
+
+    rain->vbo_seq_line = gen_seq_buffer(rain);
+    rain->vbo_splash = gen_splash_buffer(rain);
+}
+
+GLuint gen_seq_buffer(Rain* rain){
+    float *data = __seq_buffer_rain_line(rain->len_rain_line, rain->interval_rain_line, &rain->len_seq_line);
+    GLuint vbo = gen_buffer(rain->len_seq_line * 4 * sizeof(float), data);
+    free(data);
+    return vbo;
+}
+
+GLuint gen_splash_buffer(Rain* rain){
+    float *data = __splash_buffer(rain->cnt_particle, rain->v_max_splash);
+    GLuint vbo = gen_buffer(rain->cnt_particle * 36 * sizeof(float), data);
+    free(data);
+    return vbo;
+}
+
+GLuint gen_instance_buffer_line(Rain* rain, Chunk* chunk){
+    float *data = __instance_buffer_rain_line(
+        chunk, 
+        rain->cnt_seg_pb_line,
+        rain->len_rain_line,
+        rain->interval_rain_line, 
+        &rain->cnt_instance_line);
+    GLuint vbo = gen_buffer(rain->cnt_instance_line * 4 * sizeof(float), data);
+    free(data);
+    return vbo;
+}
+
+GLuint gen_instance_buffer_splash(Rain* rain, Chunk* chunk){
+    float *data = __instance_buffer_rain_splash(
+        chunk, 
+        rain->splash_pb,
+        rain->t_max_splash,
+        rain->t_step_interval,
+        &rain->cnt_instance_splash
+    );
+    GLuint vbo = gen_buffer(rain->cnt_instance_splash * 5 * sizeof(float), data);
+    free(data);
+    return vbo;
+}
+
+int __get_t_totoal_line(Rain* rain){
+    return ceilf(RAIN_MAX_HEIGHT / (rain->v_line * rain->t_step_interval));
+}
+
 void update_rain(Rain* rain, State* state){
     int p = chunked(state->x);
     int q = chunked(state->z);
-    const float len_rain_line = 0.9f, interval_rain_line = 10.f;
-    const float v_line = 8.f, t_step_interval = 0.01;
-    const int cnt_seg_pb = 1;
-
-    const int cnt_particle = 20;
-    const float v_max_splash = 3.f;
-    const int splash_pb = 3;
-    const float t_animation_max_splash = 0.5f, t_max_splash = 5.f;
-
-    if(rain->inited && p == rain->p && q == rain->q){
-        __update_rain_time(rain);
+    if(!rain->inited){
+        __init_rain(rain);
+        __gen_instances(rain, p, q, 1);
         return;
     }
-    if(rain->inited){
-        del_buffer(rain->vbo_instance_line);
+    __gen_instances(rain, p, q, 0);
+    if(rain->activated){
+        __update_rain_time(rain);
     }
-    if(!rain->inited){
-        rain->inited = 1;
-        rain->t_step_interval = t_step_interval;
-        rain->last_update = glfwGetTime();
+}
 
-        rain->t_total_line = ceilf(RAIN_MAX_HEIGHT / (v_line * t_step_interval));
-        rain->t_line = 0;
-        float *data_seq = __seq_buffer_rain_line(len_rain_line, 
-            interval_rain_line, &rain->len_seq_line);
-        rain->vbo_seq_line = gen_buffer(rain->len_seq_line * sizeof(float) * 4, data_seq);
-        free(data_seq);
-
-        rain->t_splash = 0.f;
-        rain->t_max_splash = t_max_splash;
-        rain->t_animation_max_splash = t_animation_max_splash;
-        rain->cnt_particle = cnt_particle;
-        rain->v_max_splash = v_max_splash;
-        float *data_splash = __splash_buffer(rain->cnt_particle, rain->v_max_splash);
-        rain->vbo_splash = gen_buffer(rain->cnt_particle * sizeof(float) * 36, data_splash);
-        free(data_splash);
+void render_rain(Rain* rain){
+    if(!rain->activated)
+        return;
+    for(int i = 0; i < 9; ++i){
+        if(rain->instance[i].valid){
+            __draw_rain_line(rain->program_line, rain->vbo_seq_line, rain->instance[i].vbo_instance_line,
+                rain->len_seq_line, rain->cnt_instance_line, rain->t_line, __get_t_totoal_line(rain));
+            __draw_rain_splash(rain->program_splash, rain->vbo_splash, rain->instance[i].vbo_instance_splash,
+                rain->cnt_particle, rain->cnt_instance_splash, rain->t_splash, rain->t_max_splash, rain->t_animation_max_splash);
+        }
     }
-    //生成vbo_instance
-    Chunk *chunk = find_chunk(p, q);
-    float *data_instance_line = __instance_buffer_rain_line(chunk, cnt_seg_pb, len_rain_line, 
-        interval_rain_line, &rain->cnt_instance_line);
-    rain->vbo_instance_line = gen_buffer(rain->cnt_instance_line * 4 * sizeof(float), data_instance_line);
-    free(data_instance_line);
-
-    float *data_instance_splash = __instance_buffer_rain_splash(chunk, splash_pb, 
-        rain->t_max_splash, rain->t_step_interval, &rain->cnt_instance_splash);
-    rain->vbo_instance_splash = gen_buffer(rain->cnt_instance_splash * sizeof(float) * 5, data_instance_splash);
-
-    rain->p = p; rain->q = q;
 }

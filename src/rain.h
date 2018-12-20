@@ -5,28 +5,41 @@
 #define RAIN_MAX_HEIGHT 200
 
 typedef struct {
+    int p, q;
+    GLuint vbo_instance_line;
+    GLuint vbo_instance_splash;
+    int valid;
+}RainInstance;
+
+typedef struct {
+    int activated;
     int inited;
     int p, q;
 
+    int cnt_seg_pb_line;
+    float len_rain_line, interval_rain_line;
     int cnt_instance_line;
-    int len_seq_line;
+    int len_seq_line;   //记录模型大小
     int t_line;
-    int t_total_line;
+    float v_line;
 
+    int cnt_particle;   //同样用于记录模型的大小
+    float v_max_splash;
+    int splash_pb;
+    int cnt_instance_splash;
     float t_splash;
     float t_animation_max_splash;
     float t_max_splash;
-    int cnt_particle;
-    float v_max_splash;
-    int cnt_instance_splash;
 
     float t_step_interval;
     double last_update;
 
-    GLuint vbo_seq_line, vbo_instance_line;
-    GLuint vbo_splash, vbo_instance_splash;
+    GLuint vbo_seq_line;
+    GLuint vbo_splash;
     GLuint program_line;
     GLuint program_splash;
+
+    RainInstance instance[9];   //始终保证玩家所处的chunk和紧邻周围的chunk的绘制
 } Rain;
 
 extern void update_rain(Rain* rain, State* state);
