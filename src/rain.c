@@ -430,3 +430,30 @@ void render_rain(Rain* rain){
         }
     }
 }
+
+//在chunk的block_map保留了新设置的方块后调用
+void invalidate_rain(Rain* rain, int x, int y, int z, int w){
+    int p = chunked(x);
+    int q = chunked(z);
+    int idx_instance = -1;
+    for(int i = 0; i < 9; ++i){
+        if(rain->instance[i].p == p && rain->instance[i].q == q){
+            idx_instance = i;
+            break;
+        }
+    }
+    if(idx_instance == -1)
+        return;
+    int highest = highest_block(x, z);
+    if(highest == -1)
+        return;
+    if((w == 0 && y > highest) || (is_obstacle(w) && y == highest)){
+        if(rain->instance[idx_instance].valid){
+            del_buffer(rain->instance[idx_instance].vbo_instance_line);
+            del_buffer(rain->instance[idx_instance].vbo_instance_splash);
+        }
+        Chunk* chunk = find_chunk(p, q);
+        rain->instance[idx_instance].vbo_instance_line = gen_instance_buffer_line(rain, chunk);
+        rain->instance[idx_instance].vbo_instance_splash = gen_instance_buffer_splash(rain, chunk);
+    }
+}

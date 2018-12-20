@@ -37,4 +37,5 @@ extern int get_block(int x, int y, int z);
 extern void get_mvp_matrix(float *mat);
 extern int chunked(float x);
 extern Chunk *find_chunk(int p, int q);
+extern int highest_block(float x, float z);
 #endif

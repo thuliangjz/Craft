@@ -44,5 +44,5 @@ typedef struct {
 
 extern void update_rain(Rain* rain, State* state);
 extern void render_rain(Rain* rain);
-
+extern void invalidate_rain(Rain* rain, int x, int y, int z, int w);
 #endif

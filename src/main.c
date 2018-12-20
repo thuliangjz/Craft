@@ -1554,6 +1554,7 @@ void set_block(int x, int y, int z, int w) {
         }
     }
     client_block(x, y, z, w);
+    invalidate_rain(&g->rain, x, y, z, w);
 }
 
 void record_block(int x, int y, int z, int w) {
