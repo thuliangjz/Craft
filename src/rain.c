@@ -16,6 +16,7 @@ GLuint gen_instance_buffer_splash(Rain* rain, Chunk* chunk);
 int __get_t_totoal_line(Rain* rain);
 void __gen_instances(Rain* rain, int p, int q, int force);
 int __is_neighbor(int p1, int q1, int p, int q);
+
 float *__instance_buffer_rain_line(Chunk* chunk, int cnt_seg_pb, 
         float len_rain_line, float interval_rain_line,
         int *cnt_instance){
@@ -34,12 +35,13 @@ float *__instance_buffer_rain_line(Chunk* chunk, int cnt_seg_pb,
     }END_MAP_FOR_EACH;
     int sz_data = cnt_seg_pb * cnt_seg_pb * CHUNK_SIZE * CHUNK_SIZE;
     *cnt_instance = sz_data;
-    sz_data *= 4;   //每个instance包含4个float
+    sz_data *= 5;   //每个instance包含5个float
     float *data = calloc(sz_data, sizeof(float));
     float *data_head = data;
     float delta_instance = 1.f / cnt_seg_pb;
     const int rand_step = 128;
     const float rand_step_f = rand_step;
+    const int rand_theta = 50;
     for(int x = 0; x < CHUNK_SIZE; ++x){
         for(int z = 0; z < CHUNK_SIZE; ++z){
             float y_min = y_max[x * CHUNK_SIZE + z] + 0.5 - len_rain_line;
@@ -50,7 +52,7 @@ float *__instance_buffer_rain_line(Chunk* chunk, int cnt_seg_pb,
                     *(data++) = (rand() % rand_step) / rand_step_f * interval_rain_line;
                     *(data++) = v_z + ((rand() % rand_step) / rand_step_f - 0.5) * delta_instance;
                     *(data++) = y_min;
-
+                    *(data++) = (rand() % rand_theta) / (float)rand_theta * 2 * PI;
                     v_z += delta_instance;
                 }
                 v_x += delta_instance;
@@ -64,15 +66,25 @@ float *__instance_buffer_rain_line(Chunk* chunk, int cnt_seg_pb,
 float *__seq_buffer_rain_line(float len_rain_line, float interval_rain_line, int* len_seq){
     int sz_data = ceilf(RAIN_MAX_HEIGHT / interval_rain_line);
     *len_seq = sz_data;
-    float *data = calloc(sz_data * 4, sizeof(float));
+    float *data = calloc(sz_data * 18, sizeof(float));
     float *data_head = data;
     float y = 0;
+    const float l = 0.02f / 2.f;
+    float pos_quad[6][3] = {
+        {-l, 0, 0},
+        {-l, len_rain_line, 0},
+        {l, len_rain_line, 0},
+        {-l, 0, 0},
+        {l, len_rain_line, 0},
+        {l, 0, 0}
+    };
     //一条线的两个顶点包含两个属性：头的位置和相对位置,第一个对应rain_line_head, 第二个对应rain_line_y
     for(int i = 0; i < sz_data; ++i){
-        *(data++) = y;
-        *(data++) = 0;
-        *(data++) = y;
-        *(data++) = len_rain_line;
+        for(int j = 0; j < 6; ++j){
+            *(data++) = y;
+            *(data++) = pos_quad[j][0];
+            *(data++) = pos_quad[j][1];
+        }
         y += interval_rain_line;
     }
     return data_head;
@@ -205,22 +217,26 @@ void __draw_rain_line(GLuint program,
     glUseProgram(program);
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo_seq);
-    GLuint rain_line_y = glGetAttribLocation(program, "rain_line_y");
+    GLuint pos_quad = glGetAttribLocation(program, "pos_quad");
     GLuint rain_line_head = glGetAttribLocation(program, "rain_line_head");
-    glEnableVertexAttribArray(rain_line_y);
+    glEnableVertexAttribArray(pos_quad);
     glEnableVertexAttribArray(rain_line_head);
-    glVertexAttribPointer(rain_line_y, 1, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)(sizeof(float) * 1));
-    glVertexAttribPointer(rain_line_head, 1, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)(0));
+    glVertexAttribPointer(pos_quad, 2, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)(sizeof(float)));
+    glVertexAttribPointer(rain_line_head, 1, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)(0));
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo_instance);
     GLuint y_min = glGetAttribLocation(program, "y_min"),
-        seq_pos = glGetAttribLocation(program, "seq_pos");
+        seq_pos = glGetAttribLocation(program, "seq_pos"),
+        theta = glGetAttribLocation(program, "theta");
     glEnableVertexAttribArray(y_min);
     glEnableVertexAttribArray(seq_pos);
-    glVertexAttribPointer(seq_pos, 3, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glVertexAttribPointer(y_min, 1, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(theta);
+    glVertexAttribPointer(seq_pos, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glVertexAttribPointer(y_min, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(theta, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(4 * sizeof(float)));
     glVertexAttribDivisor(seq_pos, 1);
     glVertexAttribDivisor(y_min, 1);
+    glVertexAttribDivisor(theta, 1);
 
     glUniform1f(glGetUniformLocation(program, "t"), t);
     glUniform1f(glGetUniformLocation(program, "t_total"), t_total);
@@ -230,16 +246,17 @@ void __draw_rain_line(GLuint program,
     glUniformMatrix4fv(glGetUniformLocation(program, "mat_mvp"), 1, GL_FALSE, mat_mvp);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glLineWidth(2.f);
-    glDrawArraysInstanced(GL_LINES, 0, len_seq * 2, cnt_instance);
+    glDrawArraysInstanced(GL_TRIANGLES, 0, len_seq * 6, cnt_instance);
 
     glVertexAttribDivisor(rain_line_head, 0);
     glVertexAttribDivisor(y_min, 0);
     glVertexAttribDivisor(seq_pos, 0);
+    glVertexAttribDivisor(theta, 0);
     glDisableVertexAttribArray(rain_line_head);
-    glDisableVertexAttribArray(rain_line_y);
+    glDisableVertexAttribArray(pos_quad);
     glDisableVertexAttribArray(y_min);
     glDisableVertexAttribArray(seq_pos);
+    glDisableVertexAttribArray(theta);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
@@ -346,7 +363,7 @@ void __init_rain(Rain* rain){
 
 GLuint gen_seq_buffer(Rain* rain){
     float *data = __seq_buffer_rain_line(rain->len_rain_line, rain->interval_rain_line, &rain->len_seq_line);
-    GLuint vbo = gen_buffer(rain->len_seq_line * 4 * sizeof(float), data);
+    GLuint vbo = gen_buffer(rain->len_seq_line * 18 * sizeof(float), data);
     free(data);
     return vbo;
 }
@@ -365,7 +382,7 @@ GLuint gen_instance_buffer_line(Rain* rain, Chunk* chunk){
         rain->len_rain_line,
         rain->interval_rain_line, 
         &rain->cnt_instance_line);
-    GLuint vbo = gen_buffer(rain->cnt_instance_line * 4 * sizeof(float), data);
+    GLuint vbo = gen_buffer(rain->cnt_instance_line * 5 * sizeof(float), data);
     free(data);
     return vbo;
 }
