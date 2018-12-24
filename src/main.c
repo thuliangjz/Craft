@@ -40,7 +40,6 @@
 #define WORKER_BUSY 1
 #define WORKER_DONE 2
 
-
 typedef struct {
     int p;
     int q;
@@ -234,6 +233,46 @@ GLuint gen_sky_buffer() {
     return gen_buffer(sizeof(data), data);
 }
 
+void make_sun(float *data, float x, float y, float z, float n) {
+    static const float positions[6][4][3] = {
+        {{-1, -1, -1}, {-1, -1, +1}, {-1, +1, -1}, {-1, +1, +1}},
+        {{+1, -1, -1}, {+1, -1, +1}, {+1, +1, -1}, {+1, +1, +1}},
+        {{-1, +1, -1}, {-1, +1, +1}, {+1, +1, -1}, {+1, +1, +1}},
+        {{-1, -1, -1}, {-1, -1, +1}, {+1, -1, -1}, {+1, -1, +1}},
+        {{-1, -1, -1}, {-1, +1, -1}, {+1, -1, -1}, {+1, +1, -1}},
+        {{-1, -1, +1}, {-1, +1, +1}, {+1, -1, +1}, {+1, +1, +1}}
+    };
+    static const float indices[6][6] = {
+        {0, 3, 2, 0, 1, 3},
+        {0, 3, 1, 0, 2, 3},
+        {0, 3, 2, 0, 1, 3},
+        {0, 3, 1, 0, 2, 3},
+        {0, 3, 2, 0, 1, 3},
+        {0, 3, 1, 0, 2, 3}
+    };
+    float *d = data;
+    for (int i = 0; i < 6; i++) {
+        for (int v = 0; v < 6; v++) {
+            int j = indices[i][v];
+            *(d++) = x + n * positions[i][j][0];
+            *(d++) = y + n * positions[i][j][1];
+            *(d++) = z + n * positions[i][j][2];
+       }
+    }
+  
+}
+
+GLuint gen_sun_buffer(Player *player) {
+    GLfloat *data = malloc_faces(3, 6);
+    State *s = &player->state;
+    float t = time_of_day();
+    float R = 1000.0f;
+    float delta_x = R * cos(2 * PI * t - PI / 2);
+    float delta_y = R * sin(2 * PI * t - PI / 2);
+    make_sun(data, s->x + delta_x, s->y + delta_y, s->z, 100);
+    return gen_faces(3, 6, data);
+}
+
 GLuint gen_cube_buffer(float x, float y, float z, float n, int w) {
     GLfloat *data = malloc_faces(10, 6);
     float ao[6][4] = {0};
@@ -303,6 +342,17 @@ void draw_triangles_3d_text(Attrib *attrib, GLuint buffer, int count) {
     glDisableVertexAttribArray(attrib->position);
     glDisableVertexAttribArray(attrib->uv);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void draw_triangles_3d_position(Attrib *attrib, GLuint buffer, int count) {
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glEnableVertexAttribArray(attrib->position);
+    glVertexAttribPointer(attrib->position, 3, GL_FLOAT, GL_FALSE,
+        sizeof(GLfloat) * 3, 0);
+    glDrawArrays(GL_TRIANGLES, 0, count);
+    glDisableVertexAttribArray(attrib->position);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glDeleteBuffers(1, &buffer);
 }
 
 void draw_triangles_3d(Attrib *attrib, GLuint buffer, int count) {
@@ -1711,6 +1761,17 @@ void render_sky(Attrib *attrib, Player *player, GLuint buffer) {
     draw_triangles_3d(attrib, buffer, 512 * 3);
 }
 
+void render_sun_moon(Attrib *attrib, Player *player, GLuint buffer) {
+    State *s = &player->state;
+    float matrix[16]; 
+    set_matrix_3d(
+        matrix, g->width, g->height,
+        s->x, s->y, s->z, s->rx, s->ry, g->fov, g->ortho, 50);
+    glUseProgram(attrib->program);
+    glUniformMatrix4fv(attrib->matrix, 1, GL_FALSE, matrix);
+    draw_triangles_3d_position(attrib, buffer, 6 * 6); 
+}
+
 void render_wireframe(Attrib *attrib, Player *player) {
     State *s = &player->state;
     float matrix[16];
@@ -2672,6 +2733,7 @@ int main(int argc, char **argv) {
     Attrib line_attrib = {0};
     Attrib text_attrib = {0};
     Attrib sky_attrib = {0};
+    Attrib sun_attrib = {0};
     GLuint program;
 
     program = load_program(
@@ -2713,6 +2775,12 @@ int main(int argc, char **argv) {
     sky_attrib.matrix = glGetUniformLocation(program, "matrix");
     sky_attrib.sampler = glGetUniformLocation(program, "sampler");
     sky_attrib.timer = glGetUniformLocation(program, "timer");
+
+    program = load_program(
+        "shaders/sun_vertex.glsl", "shaders/sun_fragment.glsl");
+    sun_attrib.program = program;
+    sun_attrib.position = glGetAttribLocation(program, "position");
+    sun_attrib.matrix = glGetUniformLocation(program, "matrix"); 
 
     program = load_program(
         "shaders/destroy_vertex.glsl", "shaders/destroy_fragment.glsl"
@@ -2862,6 +2930,10 @@ int main(int argc, char **argv) {
             glClear(GL_COLOR_BUFFER_BIT);
             glClear(GL_DEPTH_BUFFER_BIT);
             render_sky(&sky_attrib, player, sky_buffer);
+            glClear(GL_DEPTH_BUFFER_BIT);
+            // RENDER SUN //
+            GLuint sun_buffer = gen_sun_buffer(player);
+            render_sun_moon(&sun_attrib, player, sun_buffer); 
             glClear(GL_DEPTH_BUFFER_BIT);
             int face_count = render_chunks(&block_attrib, player);
             render_signs(&text_attrib, player);
