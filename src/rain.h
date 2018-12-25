@@ -34,6 +34,8 @@ typedef struct {
     float t_step_interval;
     double last_update;
 
+    float control;
+
     GLuint vbo_seq_line;
     GLuint vbo_splash;
     GLuint program_line;
@@ -45,4 +47,5 @@ typedef struct {
 extern void update_rain(Rain* rain, State* state);
 extern void render_rain(Rain* rain);
 extern void invalidate_rain(Rain* rain, int x, int y, int z, int w);
+extern void control_rain(Rain* rain, int direction);
 #endif

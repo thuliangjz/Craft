@@ -2260,6 +2260,15 @@ void on_key(GLFWwindow *window, int key, int scancode, int action, int mods) {
         if (key == CRAFT_KEY_OBSERVE_INSET) {
             g->observe2 = (g->observe2 + 1) % g->player_count;
         }
+        if (key == GLFW_KEY_H){
+            g->rain.activated = !(g->rain.activated);
+        }
+        if (key == GLFW_KEY_J){
+            control_rain(&g->rain, -1);
+        }
+        if (key == GLFW_KEY_K){
+            control_rain(&g->rain, 1);
+        }
     }
 }
 

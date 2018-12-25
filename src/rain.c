@@ -289,6 +289,10 @@ void __gen_instances(Rain* rain, int p, int q, int force){
                     rain->instance[idx_instance].valid = 0;
                     continue;
                 }
+                if(rain->instance[idx_instance].valid){
+                    del_buffer(rain->instance[idx_instance].vbo_instance_line);
+                    del_buffer(rain->instance[idx_instance].vbo_instance_splash);
+                }
                 rain->instance[idx_instance].p = p + dp;
                 rain->instance[idx_instance].q = q + dq;
                 rain->instance[idx_instance].vbo_instance_line = gen_instance_buffer_line(rain, chunk);
@@ -345,10 +349,10 @@ void __init_rain(Rain* rain){
     rain->last_update = glfwGetTime();
     
     rain->cnt_seg_pb_line = 1;
-    rain->len_rain_line = 0.9f;
-    rain->interval_rain_line = 30.f;
+    rain->len_rain_line = 0.2f;
+    rain->interval_rain_line = 20.f;
     rain->t_line = 0;
-    rain->v_line = 8.f;
+    rain->v_line = 10.f;
     
     rain->cnt_particle = 20;
     rain->v_max_splash = 3.f;
@@ -356,6 +360,12 @@ void __init_rain(Rain* rain){
     rain->t_splash = 0.f;
     rain->t_max_splash = 5.f;
     rain->t_animation_max_splash = 0.5f;
+
+    rain->control = 0.f;
+    
+    for(int i = 0; i < 9; ++i){
+        rain->instance[i].valid = 0;
+    }
 
     rain->vbo_seq_line = gen_seq_buffer(rain);
     rain->vbo_splash = gen_splash_buffer(rain);
@@ -456,4 +466,25 @@ void invalidate_rain(Rain* rain, int x, int y, int z, int w){
         rain->instance[idx_instance].vbo_instance_line = gen_instance_buffer_line(rain, chunk);
         rain->instance[idx_instance].vbo_instance_splash = gen_instance_buffer_splash(rain, chunk);
     }
+}
+
+void control_rain(Rain* rain, int direction){
+    if(!rain->activated)
+        return;
+    rain->control += (float)direction * 0.1f;
+    rain->control = rain->control > 0 ? rain->control : 0;
+    rain->control = rain->control < 1 ? rain->control : 1;
+    
+    //设置雨势, control越大，雨势越大
+    float control = rain->control;
+    rain->interval_rain_line = 40 - control * 30.f;
+    rain->v_line = 10 + 10 * control;
+    rain->len_rain_line = 0.2f + 0.7 * control;
+    rain->cnt_particle = 10 + 20 * control;
+    rain->splash_pb = 1 + 5 * control;
+    rain->t_max_splash = 10 - 9 * control;
+
+    rain->vbo_seq_line = gen_seq_buffer(rain);
+    rain->vbo_splash = gen_splash_buffer(rain);
+    __gen_instances(rain, rain->p, rain->q, 1);
 }
