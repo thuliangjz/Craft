@@ -266,11 +266,92 @@ GLuint gen_sun_buffer(Player *player) {
     GLfloat *data = malloc_faces(3, 6);
     State *s = &player->state;
     float t = time_of_day();
-    float R = 1000.0f;
+    float R = 300.0f;
     float delta_x = R * cos(2 * PI * t - PI / 2);
     float delta_y = R * sin(2 * PI * t - PI / 2);
-    make_sun(data, s->x + delta_x, s->y + delta_y, s->z, 100);
+    make_sun(data, s->x + delta_x, s->y + delta_y, s->z, 30);
     return gen_faces(3, 6, data);
+}
+
+void gen_sun_split_framebuffer(GLuint *hdrFBO, GLuint* rboDepth, GLuint *colorBuffers) {
+    glGenFramebuffers(2, hdrFBO);
+    
+    // create 2 floating point color buffers(1 for normal rendering, 
+    // the other for brightness values)
+    // GLuint colorBuffers[2];
+    glGenTextures(2, colorBuffers);
+    for (unsigned int i = 0; i < 2; i++) {
+        glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO[i]);
+        glBindTexture(GL_TEXTURE_2D, colorBuffers[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, g->width, g->height, 0, GL_RGB, GL_FLOAT, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        // attach texture to framebuffer
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorBuffers[i], 0);
+    
+        glGenRenderbuffers(1, &(rboDepth[i]));
+        glBindRenderbuffer(GL_RENDERBUFFER, rboDepth[i]);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, g->width, g->height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboDepth[i]);
+
+        // tell OpenGL which color attachments we'll use (of this framebuffer) for rendering
+        GLuint attachments[1] = { GL_COLOR_ATTACHMENT0 };
+        glDrawBuffers(1, attachments);
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            switch(status) {
+                case GL_FRAMEBUFFER_UNDEFINED:
+                    printf("GL_FRAMEBUFFER_UNDEFINED");
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT :
+                    printf("GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT ");
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT :
+                    printf("GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT ");
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER :
+                    printf("GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER ");
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER :
+                    printf("GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER ");
+                    break;
+                case GL_FRAMEBUFFER_UNSUPPORTED :
+                    printf("GL_FRAMEBUFFER_UNSUPPORTED ");
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE :
+                    printf("GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE ");
+                    break;
+                case GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS  :
+                    printf("GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS ");
+                    break;
+            }
+            
+            // printf(status);
+            printf("split Framebuffer not complete!");
+        }
+    }
+    
+    
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    
+}
+
+void gen_blur_buffer(GLuint* pingpongFBO, GLuint* pingpongColorbuffers) {
+    glGenFramebuffers(2, pingpongFBO);
+    glGenTextures(2, pingpongColorbuffers);
+    for (unsigned int i = 0; i < 2; i++) {
+        glBindFramebuffer(GL_FRAMEBUFFER, pingpongFBO[i]);
+        glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[i]);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, pingpongColorbuffers[i], 0);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            printf("blur Framebuffer not complete");
+    }
 }
 
 GLuint gen_cube_buffer(float x, float y, float z, float n, int w) {
@@ -1772,6 +1853,32 @@ void render_sun_moon(Attrib *attrib, Player *player, GLuint buffer) {
     draw_triangles_3d_position(attrib, buffer, 6 * 6); 
 }
 
+void renderQuad(Attrib *attrib, GLuint* quadVAO, GLuint* quadVBO)
+{
+    if (quadVAO == 0) {
+        float quadVertices[] = {
+            // positions        // texture Coords
+            -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+            -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+             1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+             1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+        };
+        // setup plane VAO
+        glGenVertexArrays(1, quadVAO);
+        glGenBuffers(1, quadVBO);
+        glBindVertexArray(*quadVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, *quadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(attrib->position);
+        glVertexAttribPointer(attrib->position, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(attrib->uv);
+        glVertexAttribPointer(attrib->uv, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    }
+    glBindVertexArray(*quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+}
+
 void render_wireframe(Attrib *attrib, Player *player) {
     State *s = &player->state;
     float matrix[16];
@@ -2733,7 +2840,9 @@ int main(int argc, char **argv) {
     Attrib line_attrib = {0};
     Attrib text_attrib = {0};
     Attrib sky_attrib = {0};
-    Attrib sun_attrib = {0};
+    Attrib sun_split_attrib = {0};
+    Attrib sun_blur_attrib = {0};
+    Attrib sun_combine_attrib = {0};
     GLuint program;
 
     program = load_program(
@@ -2777,10 +2886,29 @@ int main(int argc, char **argv) {
     sky_attrib.timer = glGetUniformLocation(program, "timer");
 
     program = load_program(
-        "shaders/sun_vertex.glsl", "shaders/sun_fragment.glsl");
-    sun_attrib.program = program;
-    sun_attrib.position = glGetAttribLocation(program, "position");
-    sun_attrib.matrix = glGetUniformLocation(program, "matrix"); 
+        "shaders/sun_split_vert.glsl", "shaders/sun_split_frag.glsl");
+    sun_split_attrib.program = program;
+    sun_split_attrib.position = glGetAttribLocation(program, "position");
+    sun_split_attrib.matrix = glGetUniformLocation(program, "matrix"); 
+
+    program = load_program(
+        "shaders/sun_blur_vert.glsl", "shaders/sun_blur_frag.glsl");
+    sun_blur_attrib.program = program;
+    sun_blur_attrib.position = glGetAttribLocation(program, "position");
+    sun_blur_attrib.uv = glGetAttribLocation(program, "uv");
+    sun_blur_attrib.extra1 = glGetUniformLocation(program, "image");
+    sun_blur_attrib.extra2 = glGetUniformLocation(program, "horizontal");
+    
+
+    program = load_program(
+        "shaders/sun_combine_vert.glsl", "shaders/sun_combine_frag.glsl");
+    sun_combine_attrib.program = program;
+    sun_combine_attrib.position = glGetAttribLocation(program, "position");
+    sun_combine_attrib.matrix = glGetUniformLocation(program, "matrix"); 
+    sun_combine_attrib.uv = glGetAttribLocation(program, "uv");
+    sun_combine_attrib.extra1 = glGetUniformLocation(program, "scene");
+    sun_combine_attrib.extra2 = glGetUniformLocation(program, "bloomBlur");
+    sun_combine_attrib.extra3 = glGetUniformLocation(program, "exposure");
 
     program = load_program(
         "shaders/destroy_vertex.glsl", "shaders/destroy_fragment.glsl"
@@ -2850,6 +2978,18 @@ int main(int argc, char **argv) {
         double last_commit = glfwGetTime();
         double last_update = glfwGetTime();
         GLuint sky_buffer = gen_sky_buffer();
+
+        // for rendering sun 
+        GLuint hdrFBO[2], rboDepth[2];
+        GLuint colorBuffers[2];
+        gen_sun_split_framebuffer(hdrFBO, rboDepth, colorBuffers);
+
+        GLuint pingpongFBO[2];
+        GLuint pingpongColorbuffers[2];
+        gen_blur_buffer(pingpongFBO, pingpongColorbuffers); 
+
+        GLuint quadVAO = 0;
+        GLuint quadVBO = 0;
 
         Player *me = g->players;
         State *s = &g->players->state;
@@ -2927,13 +3067,67 @@ int main(int argc, char **argv) {
             Player *player = g->players + g->observe1;
 
             // RENDER 3-D SCENE //
-            glClear(GL_COLOR_BUFFER_BIT);
             glClear(GL_DEPTH_BUFFER_BIT);
             render_sky(&sky_attrib, player, sky_buffer);
+            
+            // RENDER SUN 1 split
+            // glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO[0]);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
             glClear(GL_DEPTH_BUFFER_BIT);
-            // RENDER SUN //
-            GLuint sun_buffer = gen_sun_buffer(player);
-            render_sun_moon(&sun_attrib, player, sun_buffer); 
+            GLuint sun_buffer0 = gen_sun_buffer(player);
+            render_sun_moon(&sun_split_attrib, player, sun_buffer0);
+
+            // glClear(GL_DEPTH_BUFFER_BIT);
+            // glUseProgram(sun_combine_attrib.program);
+            // glActiveTexture(GL_TEXTURE5);
+            // glBindTexture(GL_TEXTURE_2D, colorBuffers[0]);
+            // glUniform1i(sun_combine_attrib.extra1, 5);
+            // renderQuad(&sun_combine_attrib, &quadVAO, &quadVBO);
+
+            // glBindFramebuffer(GL_FRAMEBUFFER, hdrFBO[1]);
+            // glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+            // GLuint sun_buffer1 = gen_sun_buffer(player);
+            // render_sun_moon(&sun_split_attrib, player, sun_buffer1);
+
+            // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            // 2 blur
+            // int horizontal = 1, first_iteration = 1;
+            // GLuint amount = 10;
+            // glUseProgram(sun_blur_attrib.program);
+            // glUniform1i(sun_blur_attrib.extra1, 0);
+            // for (unsigned int i = 0; i < amount; i++) {
+            //     glBindFramebuffer(GL_FRAMEBUFFER, pingpongFBO[horizontal]);
+            //     glUniform1i(sun_blur_attrib.extra2, horizontal);
+            //     glBindTexture(GL_TEXTURE_2D, first_iteration ? colorBuffers[1] : pingpongColorbuffers[!horizontal]);
+            //     renderQuad(&sun_blur_attrib, &quadVAO, &quadVBO);
+            //     if (horizontal)
+            //         horizontal = 0;
+            //     else
+            //         horizontal = 1;
+            //     if (first_iteration)
+            //         first_iteration = 0;
+            // }
+            // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+            // 3 combine
+            // glClear(GL_DEPTH_BUFFER_BIT);
+            // glUseProgram(sun_combine_attrib.program);
+            // glActiveTexture(GL_TEXTURE5);
+            // glBindTexture(GL_TEXTURE_2D, colorBuffers[0]);
+            // glActiveTexture(GL_TEXTURE6);
+            // glBindTexture(GL_TEXTURE_2D, pingpongColorbuffers[!horizontal]);
+            // glUniform1f(sun_combine_attrib.extra3, 1.0f); 
+            // glUniform1i(sun_combine_attrib.extra1, 5);
+            // glUniform1i(sun_combine_attrib.extra2, 6);
+            // renderQuad(&sun_combine_attrib, &quadVAO, &quadVBO);
+
+            // render sun over
+            // glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+ 
+            // GLuint sun_buffer = gen_sun_buffer(player);
+            // render_sun_moon(&sun_attrib, player, sun_buffer); 
             glClear(GL_DEPTH_BUFFER_BIT);
             int face_count = render_chunks(&block_attrib, player);
             render_signs(&text_attrib, player);
